@@ -14,7 +14,6 @@ jobs:
     strategy:
       matrix:
         abi: [arm64-v8a, armeabi-v7a, x86, x86_64]
-        configuration: [error_code, status_code]
 
     steps:
       - uses: actions/checkout@v4
@@ -36,11 +35,8 @@ jobs:
             -DCMAKE_CXX_STANDARD=20 \
             -DANDROID_ABI=${{ matrix.abi }} \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF"
-
-          if [ "${{ matrix.configuration }}" = "status_code" ]; then
-            CMAKE_OPTIONS="$CMAKE_OPTIONS -DLLFIO_USE_EXPERIMENTAL_SG14_STATUS_CODE=ON"
-          fi
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLFIO_BUILD_TESTS=OFF"
 
           cmake .. $CMAKE_OPTIONS
           cmake --build . --config Release
@@ -48,29 +44,38 @@ jobs:
       - name: Prepare artifacts
         shell: bash
         run: |
-          mkdir -p artifacts/lib/${{ matrix.abi }}
-          cp build/lib/libllfio.a artifacts/lib/${{ matrix.abi }}/
-          cp -r include artifacts/
+          mkdir -p llfio/lib/${{ matrix.abi }}
+          cp build/lib/libllfio.a llfio/lib/${{ matrix.abi }}/
+          if [ "${{ matrix.abi }}" = "arm64-v8a" ]; then
+            cp -r include llfio/
+          fi
 
-      - name: Upload artifacts
+      - name: Upload partial artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: llfio-android-${{ matrix.abi }}-${{ matrix.configuration }}
-          path: artifacts/
-          retention-days: 7
+          name: llfio-android-${{ matrix.abi }}
+          path: llfio/
+          retention-days: 1
 
-      - name: Create combined artifact
-        if: matrix.configuration == 'error_code' && github.ref == 'refs/heads/master'
-        shell: bash
+  create-zip:
+    needs: build-android
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: llfio-android-*
+          merge-multiple: true
+
+      - name: Create ZIP
         run: |
-          mkdir -p combined/llfio/lib/${{ matrix.abi }}
-          cp build/lib/libllfio.a combined/llfio/lib/${{ matrix.abi }}/
-          cp -r include combined/llfio/
+          cd artifacts
+          zip -r ../llfio-android.zip llfio/
 
-      - name: Upload combined artifact
-        if: matrix.configuration == 'error_code' && github.ref == 'refs/heads/master'
+      - name: Upload final ZIP
         uses: actions/upload-artifact@v4
         with:
           name: llfio-android
-          path: combined/
+          path: llfio-android.zip
           retention-days: 7
