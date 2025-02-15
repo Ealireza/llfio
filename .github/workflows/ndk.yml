@@ -1,0 +1,92 @@
+name: Android Static Library Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+    - develop
+    - master
+  pull_request:
+
+jobs:
+  android-build:
+    name: Android ${{ matrix.abi }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        abi: [armeabi-v7a, arm64-v8a, x86, x86_64]
+        
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: recursive
+
+    - name: Setup Android NDK
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r25c
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        mkdir -p build
+        cd build
+        
+        cmake .. \
+          -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake \
+          -DANDROID_ABI=${{ matrix.abi }} \
+          -DANDROID_PLATFORM=android-21 \
+          -DANDROID_STL=c++_static \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DCMAKE_CXX_STANDARD=20 \
+          -DCMAKE_INSTALL_PREFIX=install
+
+    - name: Build
+      shell: bash
+      working-directory: build
+      run: |
+        cmake --build . --config Release -j$(nproc)
+        cmake --build . --target install
+
+    - name: Create tarball
+      shell: bash
+      working-directory: build
+      run: |
+        tar -czf "llfio-v2.0-binaries-android-${{ matrix.abi }}.tgz" install/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: "Android ${{ matrix.abi }} prebuilt binaries"
+        path: build/llfio-v2.0-binaries-android-${{ matrix.abi }}.tgz
+        retention-days: 7
+
+publish-release:
+  needs: android-build
+  runs-on: ubuntu-latest
+  if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+  steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        pattern: "Android * prebuilt binaries"
+        merge-multiple: true
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: android_build_${{ github.sha }}
+        name: Android Build ${{ github.sha }}
+        body: |
+          ```
+          ${{ github.event.head_commit.message }}
+          ```
+          
+          Android prebuilt static libraries with development headers for all ABIs.
+        draft: false
+        prerelease: true
+        files: |
+          artifacts/llfio-v2.0-binaries-android-*.tgz
