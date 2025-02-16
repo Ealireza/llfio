@@ -41,11 +41,32 @@ jobs:
           cmake .. $CMAKE_OPTIONS
           cmake --build . --config Release
 
+      - name: Debug - List Build Directory
+        shell: bash
+        run: |
+          echo "Listing build directory contents:"
+          ls -R build/
+
       - name: Prepare artifacts
         shell: bash
         run: |
           mkdir -p llfio/lib/${{ matrix.abi }}
-          cp build/lib/libllfio.a llfio/lib/${{ matrix.abi }}/
+          
+          # Try different possible locations
+          if [ -f "build/libllfio.a" ]; then
+            cp build/libllfio.a llfio/lib/${{ matrix.abi }}/
+          elif [ -f "build/lib/libllfio.a" ]; then
+            cp build/lib/libllfio.a llfio/lib/${{ matrix.abi }}/
+          elif [ -f "build/src/libllfio.a" ]; then
+            cp build/src/libllfio.a llfio/lib/${{ matrix.abi }}/
+          elif [ -f "build/Release/libllfio.a" ]; then
+            cp build/Release/libllfio.a llfio/lib/${{ matrix.abi }}/
+          else
+            echo "Error: Cannot find libllfio.a"
+            find build -name "libllfio.a"
+            exit 1
+          fi
+          
           if [ "${{ matrix.abi }}" = "arm64-v8a" ]; then
             cp -r include llfio/
           fi
